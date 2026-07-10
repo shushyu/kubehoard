@@ -5,93 +5,119 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kubehoard – resource overprovisioning report</title>
 <style>
-  /* Flat, neutral design. Two accent colors:
-     --acc-over  = overprovisioning (hoarder)
-     --acc-limit = limit risk (OOMKill/throttling) */
+  /* Pastel palette, two accents:
+     --acc-blue  = hoarding / overprovisioning
+     --acc-green = limit risk */
   :root {
-    --fg: #1f2328;
-    --fg-muted: #6b7280;
-    --bg: #ffffff;
-    --line: #d7dade;
-    --bar-track: #eceef0;
-    --bar-req: #9ca3af;
-    --acc-over: #b45309;
-    --acc-over-bg: #f6ede2;
-    --acc-limit: #b91c1c;
-    --acc-limit-bg: #f9e8e8;
+    --fg: #2d3439;
+    --fg-muted: #7d8790;
+    --bg: #fbfcfd;
+    --panel: #ffffff;
+    --line: #e4e9ed;
+    --bar-track: #eef2f5;
+    --bar-req: #c9d7e6;
+    --acc-blue: #5f8fc7;
+    --acc-blue-soft: #e7eff8;
+    --acc-green: #5fa885;
+    --acc-green-soft: #e6f2ec;
+    --radius: 12px;
+    --radius-sm: 7px;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 32px 24px 64px;
+    padding: 44px 28px 80px;
     background: var(--bg);
     color: var(--fg);
-    font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 980px; margin: 0 auto; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
-  h2 { font-size: 15px; font-weight: 600; margin: 32px 0 12px; }
-  .meta { color: var(--fg-muted); font-size: 13px; margin-bottom: 24px; }
+  main { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; letter-spacing: -.02em; }
+  h1 .kube  { color: var(--acc-blue); }
+  h1 .hoard { color: var(--acc-green); }
+  h2 { font-size: 15px; font-weight: 600; margin: 40px 0 14px; }
+  .meta { color: var(--fg-muted); font-size: 13px; margin-bottom: 28px; }
   code, .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; }
 
   /* Summary cards */
-  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-  .card { border: 1px solid var(--line); padding: 12px 14px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
   .card .label { color: var(--fg-muted); font-size: 12px; }
-  .card .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
-  .card .sub { color: var(--fg-muted); font-size: 12px; margin-top: 2px; }
-  .card.over .value { color: var(--acc-over); }
-  .card.limit .value { color: var(--acc-limit); }
+  .card .value { font-size: 21px; font-weight: 650; margin-top: 3px; }
+  .card .sub { color: var(--fg-muted); font-size: 12px; margin-top: 3px; }
+  .card.over  { background: var(--acc-blue-soft); border-color: transparent; }
+  .card.over .value { color: var(--acc-blue); }
+  .card.limit { background: var(--acc-green-soft); border-color: transparent; }
+  .card.limit .value { color: var(--acc-green); }
 
   /* Namespace ranking */
-  .ns { border: 1px solid var(--line); border-bottom: none; }
-  .ns:last-of-type { border-bottom: 1px solid var(--line); }
+  .ns {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
   .ns > summary {
     list-style: none; cursor: pointer;
-    display: grid; grid-template-columns: 24px minmax(160px, 1.2fr) 2fr auto; gap: 16px;
-    align-items: center; padding: 12px 14px;
+    display: grid; grid-template-columns: 26px minmax(160px, 1.2fr) 2fr auto; gap: 18px;
+    align-items: center; padding: 15px 18px;
   }
   .ns > summary::-webkit-details-marker { display: none; }
-  .ns > summary:hover { background: #fafafa; }
+  .ns > summary:hover { background: #f6f9fb; }
   .rank { color: var(--fg-muted); font-size: 12px; }
   .ns-name { font-weight: 600; word-break: break-all; }
   .ns-sub { color: var(--fg-muted); font-size: 12px; font-weight: 400; }
 
-  .bars { display: grid; gap: 6px; }
-  .bar-row { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: center; font-size: 11px; color: var(--fg-muted); }
-  .track { position: relative; height: 14px; background: var(--bar-track); }
-  .track .req, .track .use { position: absolute; top: 0; height: 100%; }
-  .track .req { background: var(--bar-req); opacity: .45; }
-  .track .use { height: 6px; top: 4px; background: var(--acc-over); }
-  .legend { font-size: 11px; color: var(--fg-muted); margin: 8px 0 16px; }
-  .legend .swatch { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin: 0 4px 0 12px; }
+  .bars { display: grid; gap: 7px; }
+  .bar-row { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; font-size: 11px; color: var(--fg-muted); }
+  .track { position: relative; height: 14px; background: var(--bar-track); border-radius: 999px; overflow: hidden; }
+  .track .req, .track .use { position: absolute; top: 0; height: 100%; border-radius: 999px; }
+  .track .req { background: var(--bar-req); }
+  .track .use { height: 6px; top: 4px; background: var(--acc-blue); }
+  .legend { font-size: 11px; color: var(--fg-muted); margin: 10px 0 18px; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 12px; }
 
-  .badges { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-  .badge { font-size: 12px; padding: 1px 8px; border: 1px solid var(--line); color: var(--fg-muted); white-space: nowrap; }
-  .badge.warning  { border-color: var(--acc-over); color: var(--acc-over); background: var(--acc-over-bg); }
-  .badge.critical { border-color: var(--acc-over); color: #fff; background: var(--acc-over); }
-  .badge.limit    { border-color: var(--acc-limit); color: var(--acc-limit); background: var(--acc-limit-bg); }
+  .badges { display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+  .badge {
+    font-size: 12px; padding: 2px 11px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--fg-muted); white-space: nowrap;
+    background: var(--panel);
+  }
+  .badge.warning  { border-color: transparent; color: var(--acc-blue); background: var(--acc-blue-soft); }
+  .badge.critical { border-color: transparent; color: #fff; background: var(--acc-blue); }
+  .badge.limit    { border-color: transparent; color: var(--acc-green); background: var(--acc-green-soft); font-weight: 600; }
 
   /* Pod table in expanded state */
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 0; }
-  th, td { text-align: right; padding: 6px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--fg-muted); font-weight: 500; background: #fafafa; }
+  th, td { text-align: right; padding: 8px 12px; border-top: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--fg-muted); font-weight: 500; background: #f6f9fb; }
   th:first-child, td:first-child { text-align: left; }
   td.pod-name { font-family: ui-monospace, Menlo, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
   tr.pod-row td { border-top: 1px solid var(--line); }
   tr.ctr-row td { border-top: none; color: var(--fg-muted); }
-  td.ctr-name { padding-left: 22px; }
-  .over-name { color: var(--acc-over); }
-  .init-tag { font-size: 10px; border: 1px solid var(--line); padding: 0 4px; color: var(--fg-muted); }
-  td.over-hit { color: var(--acc-over); font-weight: 600; }
-  td.limit-hit { color: var(--acc-limit); font-weight: 600; }
-  .warnings { border: 1px solid var(--line); padding: 12px 14px; font-size: 13px; color: var(--fg-muted); }
-  .warnings li { margin: 2px 0; }
+  td.ctr-name { padding-left: 26px; }
+  .over-name { color: var(--acc-blue); }
+  .init-tag { font-size: 10px; border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; color: var(--fg-muted); }
+  td.over-hit { color: var(--acc-blue); font-weight: 650; }
+  td.limit-hit { color: var(--acc-green); font-weight: 650; }
+  .warnings {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 18px; font-size: 13px; color: var(--fg-muted);
+  }
+  .warnings li { margin: 3px 0; }
 </style>
 </head>
 <body>
 <main>
-  <h1>kubehoard</h1>
+  <h1><span class="kube">kube</span><span class="hoard">hoard</span></h1>
   <p class="meta">
     Overprovisioning report · generated {{.Report.GeneratedAt.Format "2006-01-02 15:04:05"}}
     {{- if .Report.Server}} · cluster <span class="mono">{{.Report.Server}}</span>{{end}}<br>
@@ -134,8 +160,8 @@
   <h2>Namespaces by overprovisioning factor</h2>
   <p class="legend">
     Bars scaled relative to the largest namespace:
-    <span class="swatch" style="background:var(--bar-req);opacity:.45"></span>request
-    <span class="swatch" style="background:var(--acc-over)"></span>actual usage
+    <span class="swatch" style="background:var(--bar-req)"></span>request
+    <span class="swatch" style="background:var(--acc-blue)"></span>actual usage
   </p>
 
   {{range $i, $ns := .Namespaces}}
