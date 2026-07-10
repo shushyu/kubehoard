@@ -1,0 +1,13 @@
+# binary
+/kubehoard
+/dist/
+
+# generated artifacts
+report.html
+report.json
+plan.yaml
+
+# tooling
+coverage.out
+.idea/
+.vscode/

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kubehoard – resource overprovisioning report</title>
+<style>
+  /* Flat, neutral design. Two accent colors:
+     --acc-over  = overprovisioning (hoarder)
+     --acc-limit = limit risk (OOMKill/throttling) */
+  :root {
+    --fg: #1f2328;
+    --fg-muted: #6b7280;
+    --bg: #ffffff;
+    --line: #d7dade;
+    --bar-track: #eceef0;
+    --bar-req: #9ca3af;
+    --acc-over: #b45309;
+    --acc-over-bg: #f6ede2;
+    --acc-limit: #b91c1c;
+    --acc-limit-bg: #f9e8e8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 64px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 15px; font-weight: 600; margin: 32px 0 12px; }
+  .meta { color: var(--fg-muted); font-size: 13px; margin-bottom: 24px; }
+  code, .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; }
+
+  /* Summary cards */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); padding: 12px 14px; }
+  .card .label { color: var(--fg-muted); font-size: 12px; }
+  .card .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+  .card .sub { color: var(--fg-muted); font-size: 12px; margin-top: 2px; }
+  .card.over .value { color: var(--acc-over); }
+  .card.limit .value { color: var(--acc-limit); }
+
+  /* Namespace ranking */
+  .ns { border: 1px solid var(--line); border-bottom: none; }
+  .ns:last-of-type { border-bottom: 1px solid var(--line); }
+  .ns > summary {
+    list-style: none; cursor: pointer;
+    display: grid; grid-template-columns: 24px minmax(160px, 1.2fr) 2fr auto; gap: 16px;
+    align-items: center; padding: 12px 14px;
+  }
+  .ns > summary::-webkit-details-marker { display: none; }
+  .ns > summary:hover { background: #fafafa; }
+  .rank { color: var(--fg-muted); font-size: 12px; }
+  .ns-name { font-weight: 600; word-break: break-all; }
+  .ns-sub { color: var(--fg-muted); font-size: 12px; font-weight: 400; }
+
+  .bars { display: grid; gap: 6px; }
+  .bar-row { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: center; font-size: 11px; color: var(--fg-muted); }
+  .track { position: relative; height: 14px; background: var(--bar-track); }
+  .track .req, .track .use { position: absolute; top: 0; height: 100%; }
+  .track .req { background: var(--bar-req); opacity: .45; }
+  .track .use { height: 6px; top: 4px; background: var(--acc-over); }
+  .legend { font-size: 11px; color: var(--fg-muted); margin: 8px 0 16px; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin: 0 4px 0 12px; }
+
+  .badges { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .badge { font-size: 12px; padding: 1px 8px; border: 1px solid var(--line); color: var(--fg-muted); white-space: nowrap; }
+  .badge.warning  { border-color: var(--acc-over); color: var(--acc-over); background: var(--acc-over-bg); }
+  .badge.critical { border-color: var(--acc-over); color: #fff; background: var(--acc-over); }
+  .badge.limit    { border-color: var(--acc-limit); color: var(--acc-limit); background: var(--acc-limit-bg); }
+
+  /* Pod table in expanded state */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 0; }
+  th, td { text-align: right; padding: 6px 10px; border-top: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--fg-muted); font-weight: 500; background: #fafafa; }
+  th:first-child, td:first-child { text-align: left; }
+  td.pod-name { font-family: ui-monospace, Menlo, monospace; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  tr.pod-row td { border-top: 1px solid var(--line); }
+  tr.ctr-row td { border-top: none; color: var(--fg-muted); }
+  td.ctr-name { padding-left: 22px; }
+  .over-name { color: var(--acc-over); }
+  .init-tag { font-size: 10px; border: 1px solid var(--line); padding: 0 4px; color: var(--fg-muted); }
+  td.over-hit { color: var(--acc-over); font-weight: 600; }
+  td.limit-hit { color: var(--acc-limit); font-weight: 600; }
+  .warnings { border: 1px solid var(--line); padding: 12px 14px; font-size: 13px; color: var(--fg-muted); }
+  .warnings li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>kubehoard</h1>
+  <p class="meta">
+    Overprovisioning report · generated {{.Report.GeneratedAt.Format "2006-01-02 15:04:05"}}
+    {{- if .Report.Server}} · cluster <span class="mono">{{.Report.Server}}</span>{{end}}<br>
+    Thresholds: factor ≥ {{printf "%.0f" .Report.Thresholds.WarnFactor}}x warning,
+    ≥ {{printf "%.0f" .Report.Thresholds.CritFactor}}x critical ·
+    limit utilization ≥ {{printf "%.0f" .Report.Thresholds.LimitWarnPct}}% risk ·
+    factor cap {{printf "%.0f" .Report.Thresholds.CapFactor}}x
+  </p>
+
+  {{with .Report.Summary}}
+  <div class="summary">
+    <div class="card">
+      <div class="label">Namespaces scanned</div>
+      <div class="value">{{.NamespacesScanned}}</div>
+      <div class="sub">{{.PodsScanned}} running pods</div>
+    </div>
+    <div class="card">
+      <div class="label">CPU requests vs. usage</div>
+      <div class="value">{{fmtCPU .Totals.CPURequestMilli}}</div>
+      <div class="sub">actual {{fmtCPU .Totals.CPUUsageMilli}}</div>
+    </div>
+    <div class="card">
+      <div class="label">Memory requests vs. usage</div>
+      <div class="value">{{fmtMem .Totals.MemRequestBytes}}</div>
+      <div class="sub">actual {{fmtMem .Totals.MemUsageBytes}}</div>
+    </div>
+    <div class="card over">
+      <div class="label">Hoarding namespaces</div>
+      <div class="value">{{.HoardersCritical}} critical</div>
+      <div class="sub">{{.HoardersWarning}} warning</div>
+    </div>
+    <div class="card limit">
+      <div class="label">Limit risk</div>
+      <div class="value">{{.LimitRiskCount}}</div>
+      <div class="sub">namespaces close to their limits</div>
+    </div>
+  </div>
+  {{end}}
+
+  <h2>Namespaces by overprovisioning factor</h2>
+  <p class="legend">
+    Bars scaled relative to the largest namespace:
+    <span class="swatch" style="background:var(--bar-req);opacity:.45"></span>request
+    <span class="swatch" style="background:var(--acc-over)"></span>actual usage
+  </p>
+
+  {{range $i, $ns := .Namespaces}}
+  <details class="ns">
+    <summary>
+      <span class="rank">{{add1 $i}}</span>
+      <span>
+        <span class="ns-name">{{$ns.Name}}</span><br>
+        <span class="ns-sub">{{$ns.PodsTotal}} pods
+          {{- if gt $ns.PodsWithoutMetrics 0}} · {{$ns.PodsWithoutMetrics}} without metrics{{end}} ·
+          CPU {{fmtFactor $ns.CPUFactor}} · Mem {{fmtFactor $ns.MemFactor}}</span>
+      </span>
+      <span class="bars">
+        <span class="bar-row"><span>CPU</span>
+          <span class="track">
+            <span class="req" style="width: {{printf "%.1f" $ns.CPUReqBarPct}}%"></span>
+            <span class="use" style="width: {{printf "%.1f" $ns.CPUUseBarPct}}%"></span>
+          </span>
+        </span>
+        <span class="bar-row"><span>Mem</span>
+          <span class="track">
+            <span class="req" style="width: {{printf "%.1f" $ns.MemReqBarPct}}%"></span>
+            <span class="use" style="width: {{printf "%.1f" $ns.MemUseBarPct}}%"></span>
+          </span>
+        </span>
+      </span>
+      <span class="badges">
+        {{if eq $ns.SeverityString "critical"}}<span class="badge critical">Hoarder {{$ns.FactorLabel}}</span>
+        {{else if eq $ns.SeverityString "warning"}}<span class="badge warning">Hoarder {{$ns.FactorLabel}}</span>
+        {{else}}<span class="badge">{{$ns.FactorLabel}}</span>{{end}}
+        {{if $ns.LimitRisk}}<span class="badge limit">Limit {{fmtPct $ns.MaxPodLimitUtilPct}}</span>{{end}}
+      </span>
+    </summary>
+    <table>
+      <thead>
+        <tr>
+          <th>Pod / container</th>
+          <th>CPU req</th><th>CPU lim</th><th>CPU use</th><th>CPU factor</th>
+          <th>Mem req</th><th>Mem lim</th><th>Mem use</th><th>Mem factor</th>
+          <th>Limit CPU</th><th>Limit mem</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range $ns.Pods}}
+        <tr class="pod-row">
+          <td class="pod-name {{if podHot .HoardSeverity}}over-name{{end}}" title="{{.Name}}">{{.Name}}</td>
+          <td>{{fmtCPU .Stats.CPURequestMilli}}</td>
+          <td>{{fmtCPULim .Stats.CPULimitMilli}}</td>
+          <td>{{fmtCPU .Stats.CPUUsageMilli}}</td>
+          <td {{if factorHot .CPUFactor}}class="over-hit"{{end}}>{{fmtFactor .CPUFactor}}</td>
+          <td>{{fmtMem .Stats.MemRequestBytes}}</td>
+          <td>{{fmtMemLim .Stats.MemLimitBytes}}</td>
+          <td>{{fmtMem .Stats.MemUsageBytes}}</td>
+          <td {{if factorHot .MemFactor}}class="over-hit"{{end}}>{{fmtFactor .MemFactor}}</td>
+          <td {{if .LimitRisk}}class="limit-hit"{{end}}>{{fmtPct .CPULimitUtilPct}}</td>
+          <td {{if .LimitRisk}}class="limit-hit"{{end}}>{{fmtPct .MemLimitUtilPct}}</td>
+        </tr>
+        {{range .Containers}}
+        <tr class="ctr-row">
+          <td class="pod-name ctr-name">└ {{.Name}}{{if .Init}} <span class="init-tag">init</span>{{end}}</td>
+          <td>{{fmtCPU .Stats.CPURequestMilli}}</td>
+          <td>{{fmtCPULim .Stats.CPULimitMilli}}</td>
+          <td>{{fmtCPU .Stats.CPUUsageMilli}}</td>
+          <td {{if factorHot .CPUFactor}}class="over-hit"{{end}}>{{fmtFactor .CPUFactor}}</td>
+          <td>{{fmtMem .Stats.MemRequestBytes}}</td>
+          <td>{{fmtMemLim .Stats.MemLimitBytes}}</td>
+          <td>{{fmtMem .Stats.MemUsageBytes}}</td>
+          <td {{if factorHot .MemFactor}}class="over-hit"{{end}}>{{fmtFactor .MemFactor}}</td>
+          <td>{{fmtPct .CPULimitUtilPct}}</td>
+          <td>{{fmtPct .MemLimitUtilPct}}</td>
+        </tr>
+        {{end}}
+        {{end}}
+      </tbody>
+    </table>
+  </details>
+  {{end}}
+
+  {{if .Report.Warnings}}
+  <h2>Notes</h2>
+  <div class="warnings">
+    <ul>
+      {{range .Report.Warnings}}<li>{{.}}</li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+</main>
+</body>
+</html>
