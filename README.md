@@ -26,13 +26,13 @@ them with separate badges/columns.
 ## Install
 
 ```sh
-go install github.com/aleks/kubehoard/cmd/kubehoard@latest
+go install github.com/shushyu/kubehoard/cmd/kubehoard@latest
 ```
 
 Or build from source:
 
 ```sh
-git clone https://github.com/aleks/kubehoard
+git clone https://github.com/shushyu/kubehoard
 cd kubehoard
 make build   # produces ./kubehoard
 ```
