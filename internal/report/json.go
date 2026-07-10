@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 // WriteJSON serializes the complete report (including pod/container level)

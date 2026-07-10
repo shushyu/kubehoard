@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 func TestWriteAndLoadJSONRoundtrip(t *testing.T) {

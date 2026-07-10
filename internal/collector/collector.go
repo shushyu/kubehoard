@@ -15,7 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 const metricsGroupVersion = "metrics.k8s.io/v1beta1"

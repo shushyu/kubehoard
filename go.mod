@@ -1,4 +1,4 @@
-module github.com/aleks/kubehoard
+module github.com/shushyu/kubehoard
 
 go 1.22.0
 

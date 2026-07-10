@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 func TestSuggestCPURequestMilli(t *testing.T) {

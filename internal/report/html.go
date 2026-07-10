@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"io"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 //go:embed report.html.tmpl

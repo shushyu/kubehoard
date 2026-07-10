@@ -10,8 +10,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aleks/kubehoard/internal/model"
-	"github.com/aleks/kubehoard/internal/report"
+	"github.com/shushyu/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/report"
 )
 
 // Observed documents the measured values a suggestion is based on —

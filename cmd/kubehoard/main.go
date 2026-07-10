@@ -24,10 +24,10 @@ import (
 	"k8s.io/client-go/rest"
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 
-	"github.com/aleks/kubehoard/internal/collector"
-	"github.com/aleks/kubehoard/internal/model"
-	"github.com/aleks/kubehoard/internal/plan"
-	"github.com/aleks/kubehoard/internal/report"
+	"github.com/shushyu/kubehoard/internal/collector"
+	"github.com/shushyu/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/plan"
+	"github.com/shushyu/kubehoard/internal/report"
 )
 
 func main() {

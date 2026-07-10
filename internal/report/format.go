@@ -4,7 +4,7 @@ package report
 import (
 	"fmt"
 
-	"github.com/aleks/kubehoard/internal/model"
+	"github.com/shushyu/kubehoard/internal/model"
 )
 
 // FormatCPU renders millicores human-readable ("250m" or "1.50 cores").
